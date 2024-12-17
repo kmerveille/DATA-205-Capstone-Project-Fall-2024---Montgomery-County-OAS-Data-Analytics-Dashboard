@@ -1,0 +1,2 @@
+# DATA-205-Capstone-Project-Fall-2024---Montgomery-County-OAS-Data-Analytics-Dashboard
+This project utilizes historical data from OAS to develop a comprehensive dashboard that offers insights into operational trends and key metrics related to animal services. It processes and analyzes datasets using statistical and visualization techniques to examine trends in animal intake, foster placements, and outcomes over time.
