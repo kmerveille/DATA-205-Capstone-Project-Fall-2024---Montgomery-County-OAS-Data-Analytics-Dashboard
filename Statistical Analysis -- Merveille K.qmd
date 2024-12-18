@@ -1,0 +1,474 @@
+---
+title: "Montgomery County Office of Animal Services Data Analytics Dashboard"
+format: html
+editor: visual
+author: Merveille Kuendzong
+date: "12/11/2024"
+--- 
+
+![](https://www.horrycountysc.gov/media/cixnznfr/hero-animal-care-center-reduced.jpg){fig-align="center"}
+
+# Introduction
+
+The Montgomery County Office of Animal Services (OAS) handles the impounding and fostering of animals throughout the county. With a large amount of data being generated, there is a need to develop an efficient and actionable analytics dashboard to monitor animal impounds, foster placements, and their outcomes. This project leverages historical data from OAS to create a comprehensive dashboard that provides insights into the operational trends and key metrics related to animal services. By exploring and processing the datasets, the project applies statistical and visualization techniques to analyze trends in animal intake, foster placements, and outcomes over time. These analyses reveal seasonal patterns, variations across animal types, and factors influencing adoption rates, providing actionable insights to improve animal welfare and resource management.
+
+Link to the dashboard on Tableau Public: https://public.tableau.com/app/profile/merveille.kuendzong/viz/OASGood-Version/Dashboard1
+
+# Statistical Analysis
+
+## Load Libraries
+
+```{r message=FALSE}
+library(lubridate) 
+library(tidyverse)
+library(plotly)
+library(DescTools)
+library(vcd)
+```
+
+## Load and Filter Data
+
+```{r message=FALSE}
+# set working directory
+setwd("C:/Users/kmerv_6exilcx/Dropbox/FALL 2024/DATA 205/CapstoneP")
+raw_kennel_data <- read_csv('OAS-Kennel.csv')
+
+# display the first six rows
+head(raw_kennel_data)
+```
+
+```{r}
+# Initial filtering of data
+filtered_kennel_data <- raw_kennel_data |> filter(!outtype %in% c('DISPOSAL', 'LOST EXP', 'FOUND EXP') & incondition != 'DEAD' & intype != 'DISPOSAL' & !kennel %in% c('FOUND', 'LOST'))
+
+head(filtered_kennel_data)
+```
+
+## Format Dates and Create New Variables
+
+```{r}
+# Create new variable 'adopted' to indicate whether an animal was adopted
+data <- filtered_kennel_data %>%
+  mutate(adopted = ifelse(outtype == "ADOPTION", TRUE, FALSE))
+
+
+# format intake and outcome dates
+data$indate <- as.Date(data$indate, format = "%m/%d/%Y")
+data$outdate <- as.Date(data$outdate, format = "%m/%d/%Y")
+
+
+# Create a new variable 'intake_season' that categorizes the intake date ('indate') into one of four seasons based on the month.
+data <- data %>%
+  mutate(intake_season = case_when(
+    month(indate) %in% c(12, 1, 2) ~ "Winter",  # December, January, February
+    month(indate) %in% c(3, 4, 5) ~ "Spring",  # March, April, May
+    month(indate) %in% c(6, 7, 8) ~ "Summer",  # June, July, August
+    month(indate) %in% c(9, 10, 11) ~ "Fall"   # September, October, November
+  ))
+head(data)
+```
+
+## Basic Descriptive Statistics
+
+```{r}
+table(data$animaltype)
+```
+
+```{r}
+table(data$intype)
+```
+
+```{r}
+table(data$outtype)
+```
+
+Outcome null = animals that do not already have an outcome; they are still in the shelter.
+
+```{r}
+length(unique(data$breed))
+```
+
+```{r}
+length(unique(data$color))
+```
+
+Breed has more than 1,300 unique values, and Color has over 500 unique values, making these variables challenging to analyze effectively within the project's scope
+
+```{r}
+table(data$adopted)
+```
+
+```{r}
+table(data$intake_season)
+```
+
+## Counts of Animals Brought and Adopted per Month
+
+```{r}
+intake_counts_data <- data |>
+  mutate(
+    month = floor_date(indate, "month"),
+    season = case_when(
+      month(month) %in% c(12, 1, 2) ~ "Winter",
+      month(month) %in% c(3, 4, 5) ~ "Spring",
+      month(month) %in% c(6, 7, 8) ~ "Summer",
+      month(month) %in% c(9, 10, 11) ~ "Fall"
+    )
+  ) |>
+  count(month, season)
+
+adopt_counts_data <- data |>
+  filter(adopted == TRUE) |>
+  mutate(
+    month = floor_date(outdate, "month"),
+    season = case_when(
+      month(month) %in% c(12, 1, 2) ~ "Winter",
+      month(month) %in% c(3, 4, 5) ~ "Spring",
+      month(month) %in% c(6, 7, 8) ~ "Summer",
+      month(month) %in% c(9, 10, 11) ~ "Fall"
+    )
+  ) |>
+  filter(!is.na(season)) |>
+  count(month, season)
+
+
+# Define a custom color palette for the seasons
+season_colors <- c(
+  "Winter" = "#00BFFF",  
+  "Spring" = "#32CD32",  
+  "Summer" = "#FFD700",  
+  "Fall" = "#FF6347"     
+)
+
+# Dummy dataset for the legend
+legend_data <- data.frame(
+  x = c(as.Date("2018-01-01"), as.Date("2018-02-01")),
+  y = c(1, 2),
+  category = c("Intakes", "Adoptions")
+)
+
+plot1 <- ggplot() +
+  # Line for animals brought
+  geom_line(data = intake_counts_data, aes(x = month, y = n), color = "purple", size = 1) +
+  geom_point(data = intake_counts_data, aes(x = month, y = n, color = season), size = 1) +
+  
+  # Line for animals adopted
+  geom_line(data = adopt_counts_data, aes(x = month, y = n), color = "gray", size = 1) +
+  geom_point(data = adopt_counts_data, aes(x = month, y = n, color = season), size = 1) +
+  
+  # Add dummy lines for the legend
+  geom_line(data = legend_data, aes(x = x, y = y, color = category), size = 1, inherit.aes = FALSE) +
+  
+  # Add labels, theme, and apply custom color scale
+  labs(
+    title = "Counts of Animals Brought and Adopted per Month",
+    x = "Month",
+    y = "Counts of Animals",
+    color = "Legend"  # Legend title
+  ) +
+  scale_color_manual(
+    values = c(
+      "Intakes" = "purple", 
+      "Adoptions" = "gray",
+      season_colors  # Include season colors
+    )
+  ) +
+  theme_dark()
+
+# Make the plot interactive
+plot1 <- ggplotly(plot1)
+plot1
+
+
+```
+
+Intake numbers tend to be higher during the summer months and lower in winter. Adoptions generally decrease in winter, start to increase in spring and are higher around summer. Notably, there was a significant drop in adoptions around April 2020, likely due to the COVID-19 lockdowns.
+
+### Adoption Rates
+
+```{r}
+# Calculate the adoption rate for each domestic animal type
+dom_animals_outcomes <- data |>
+  filter(!animaltype %in% c('WILDLIFE'))|>
+  filter(outtype != 'NULL')
+
+adoption_rates <- dom_animals_outcomes |> 
+  group_by(animaltype) |>
+  summarise(
+    total = n(),
+    non_adopted = sum(!adopted),
+    adopted_count = sum(adopted),
+    adoption_rate = adopted_count / total
+  )|>
+  arrange(desc(adoption_rate)) 
+
+# Print the result
+print(adoption_rates)
+```
+
+```{r}
+ggplot(adoption_rates, aes(x = animaltype, y = adoption_rate, fill=animaltype)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Adoption Rates by Animal Type",
+    x = "Animal Type",
+    y = "Adoption Rate"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Cats have the highest adoption rate, followed by livestock, dogs, birds, and other animals.
+
+### Distribution of Outcome Types by Animal Type
+
+```{r}
+all_animals_with_an_outcome <- data |>
+  filter(outtype != 'NULL')
+
+# Summarize the data to get counts for each outtype and animaltype
+all_animals_with_an_outcome_summary <- all_animals_with_an_outcome %>%
+  group_by(outtype, animaltype) %>%
+  summarise(n = n(), .groups = "drop")  # Create a count column 'n'
+
+all_animals_with_an_outcome_summary$outtype[all_animals_with_an_outcome_summary$outtype == "RTO"] <- "RETURN TO OWNER"
+all_animals_with_an_outcome_summary$outtype[all_animals_with_an_outcome_summary$outtype == "EUTH"] <- "EUTHANASIA"
+
+
+
+# Create the ggplot object
+plot2 <- ggplot(data = all_animals_with_an_outcome_summary, aes(x = outtype, y = n, fill = outtype, 
+                                              text = paste("Outcome Type: ", outtype, 
+                                                           "<br>Animal Type: ", animaltype,
+                                                           "<br>Count: ", n))) +  # Corrected placement of `text` aesthetic
+  geom_bar(stat = "identity") +  # Plot the counts directly using 'n'
+  facet_wrap(~animaltype, scales = "fixed", ncol = 6) +  # Control number of columns for facets
+  labs(
+    title = "Distribution of Outcome Types by Animal Type",  # Corrected typo in title
+    x = "Outcome Type",
+    y = "Count", 
+    fill = "Outcome Type" 
+  ) +
+  scale_fill_brewer(palette = "Set1") +  # Add a color palette
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels for readability, adjust horizontal justification
+    panel.spacing = unit(0.5, "lines"),  # Add extra space between facet rows
+    text = element_text(size = 8),  # Set overall text size
+    plot.title = element_text(size = 16, face = "bold"),  # Adjust title size and style
+    axis.title.x = element_text(size = 12, margin = margin(t = 10)),  # Add margin to x-axis title
+    axis.title.y = element_text(size = 12)
+  )
+
+# Convert to interactive plotly
+plot2 <- ggplotly(plot2, tooltip = "text")
+
+# Display the plot
+plot2
+
+```
+
+We can see that cats have the highest number of adoptions compared to other outcomes, although a significant portion also remains unadopted. For dogs, the most common outcome is returning to their owner, surpassing the number adopted. A large proportion of birds were transferred to rescue organizations. Livestock have relatively few outcomes overall due to their low numbers. Among "other" animals, euthanasia is the most frequent outcome. Wildlife is not adopted; most are either euthanized or die in care. Some are transferred to rescue organizations.
+
+## Analyzing Shelter Stay Duration: A Linear Regression Approach
+
+### Create New Variables Time in Thelter and Display its Distribution
+
+```{r}
+# Create a new variable 'time_in_shelter' that calculates the number of days an animal spends in the shelter. 
+# It is computed as the difference between the outcome date ('outdate') and intake date ('indate').
+data$time_in_shelter <- as.numeric(data$outdate - data$indate)
+
+summary(data$time_in_shelter)
+```
+
+```{r}
+# Filter out null times in shelter
+fdata <- data |>
+  filter(!is.na(time_in_shelter))
+
+# Show the distributon of time in shelter variable
+ggplot(fdata, aes(x = time_in_shelter)) +
+  geom_histogram(fill = "skyblue", color = "black", alpha = 0.7) +
+  labs(
+    title = "Distribution of Time in Shelter",
+    x = "Time in Shelter (days)",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+```
+
+Most of the animals have a very short duration in the shelter, based on the histogram.
+
+### Model
+
+```{r}
+# Fit a linear regression model to examine the relationship between 'time_in_shelter' (dependent variable) and the predictors: 
+# 'animaltype', 'intype', and 'season' (independent variables).
+model1 <- lm(data = fdata, time_in_shelter ~ animaltype + intype + intake_season)
+# Display a detailed summary 
+summary(model1)
+
+```
+
+The coefficients show that livestock tend to stay longer in the shelter. Animals with intake type being euth req, foster or veterinary tend to spend less time in shelter while confiscated animal tend to spend more time. Animals admitted in spring and Summer also spend less time in the shelter compared to other seasons. One possible explanation for the shorter shelter time in Summer and spring could be the increased adoption rates during these seasons, potentially due to more active adoption events or favorable weather encouraging outdoor activities and animal interaction. The model explains only about 11.9% of the variance in time_in_shelter (R-squared = 0.119), but it is statistically significant (p \< 2.2e-16). The residual standard error is 27.92, indicating moderate prediction variability.
+
+## ANOVA (Analysis of Variance) Test for Comparing Mean Time Spent in Shelter Across Animal Types
+
+Hypotheses:
+
+Null Hypothesis (H0): The mean time spent in shelter is the same for all animal types. Alternative Hypothesis (HA): At least one animal type has a mean time in shelter that differs significantly from the others.
+
+```{r}
+# Perform One-way ANOVA using fadata (data with no null values in time_spent_in_shelter column)
+aov_res <- aov(time_in_shelter ~ animaltype, data = fdata)
+
+# Output the summary of the ANOVA result
+summary(aov_res)
+```
+
+The one-way ANOVA results show that animaltype has a significant effect on time_in_shelter (F(5, 41941) = 212.7, p \< 2e-16). This indicates that the mean time in shelter differs across animal types. One possible explanation for this could be the differing adoption rates and care requirements for each animal type. With a large F-value and a very small p-value, we can reject the null hypothesis, concluding that at least one animal type's mean shelter time is significantly different from the others.
+
+### Distribution of Time in Shelter Across Animal Type Categories
+
+```{r}
+ggplot(fdata, aes(x = animaltype, y = time_in_shelter, fill = animaltype)) +
+  geom_boxplot(outlier.color = "red", outlier.size = 1, alpha = 0.7) +
+  scale_fill_brewer(palette = "Dark2") +
+  labs(
+    title = "Distribution of Time in Shelter by Animal Type",
+    x = "Animal Type",
+    y = "Time in Shelter (Days)",
+    fill = "Animal Type"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+From the boxplot, it is evident that the distributions of time_in_shelter are not normal, with many outliers visible across animal types. Given the potential violation of normality, we will validate the parametric ANOVA results by performing the Kruskal-Wallis test, a non-parametric alternative.
+
+### Kruskal-Wallis Test
+
+```{r}
+kruskal.test(fdata$time_in_shelter ~ fdata$animaltype)
+
+```
+
+The Kruskal-Wallis test confirms the findings of the ANOVA, with a significant p-value (\< 2.2e-16) and a large chi-squared value (5489.1) that indicates substantial differences in the rank distributions of time spent in shelter across animal types. Both tests show that there are significant differences in shelter time, supporting the conclusion that at least one animal type's shelter time differs from the others.
+
+### Using Dunn's Test to Compare Mean Shelter Time Across Pairs of Animal Types
+
+```{r}
+DunnTest(time_in_shelter ~ animaltype, fdata)
+```
+
+The results from Dunn's Test show that all pairwise comparisons between the animal types reveal statistically significant differences in mean rank. Specifically, the p-values for all comparisons are less than 0.05, indicating that there are significant differences in the time spent in shelter between each pair of animal types.
+
+## Comparison of Time Spent in Shelter Between Adopted and Non-Adopted Animals Using a T-Test
+
+Hypothesis:
+
+Null Hypothesis (H0): There is no significant difference in the mean time spent in shelter between adopted and non-adopted animals. Alternative Hypothesis (HA): There is a significant difference in the mean time spent in shelter between adopted and non-adopted animals.
+
+```{r}
+# Perform Two Sample t-test to compare time_in_shelter between adopted and non-adopted animals
+t_test_res <- t.test(time_in_shelter ~ adopted, data = fdata)
+t_test_res
+```
+
+The Two Sample t-test results show a t-statistic of -45.585, with a p-value \< 2.2e-16. The negative t-statistic indicates that the mean time spent in shelter for non-adopted animals (mean = 9.42 days) is significantly less than that for adopted animals (mean = 24.26 days). The 95% confidence interval for the difference in means is between -15.48 and -14.2, further confirming this difference. One possible explanation for this is that non-adopted animals may include those that were returned to their owners or transferred to other facilities, which could explain their shorter shelter durations. In contrast, adopted animals tend to stay longer as they undergo more thorough adoption processes. The t-test provides strong evidence that there is a significant difference in the mean time spent in shelter between adopted and non-adopted animals. Animals with an outcome other than 'adoption' tend to spend significantly less time in the shelter compared to those that end up being adopted. The p-value being less than 0.05 allows us to reject the null hypothesis and conclude that adoption status has a significant impact on shelter time.
+
+## Association Between Intake Type and Outcome Type
+
+### Standard Chi-squared Test
+
+```{r}
+chisq.test(data$intype, data$outtype)
+
+```
+
+The Pearson's Chi-squared test reveals enough evidence to conclude that there is a relationship between intake type (`intype`) and outcome type (`outtype`). It yields an X-squared value of 33,301, which measures the deviation between observed and expected frequencies under the null hypothesis. Since the p-value is very small, we reject the null hypothesis, concluding that there is an association between these variables. However, due to the warning that the chi-squared approximation might be incorrect, let's perform a simulated chi-squar
+
+### Simulated Chi-squared Test
+
+```{r}
+chisq.test(data$intype, data$outtype, simulate.p.value = TRUE)
+```
+
+The simulated p-value (0.0004998) is much smaller than the standard significance threshold (0.05). This indicates strong evidence that the two variables are correlated, suggesting that the outcome for an animal is likely influenced by its intake type.
+
+### Mesure of the Association
+
+```{r}
+cramers_v <- assocstats(table(data$intype, data$outtype))$cramer
+print(cramers_v)
+
+```
+
+The Cramér's V value of 0.31 indicates a moderate association between the variables "intake type" and "outcome type." This suggests that the type of intake is somewhat related to the type of outcome, but the relationship is not strong enough to be considered a high or very strong association.
+
+## Association Between Intake Type and Animal Type
+
+### Standard Chi-squared Test
+
+```{r}
+chisq.test(data$intype, data$animaltype)
+
+```
+
+The Pearson's Chi-squared test reveals enough evidence to conclude that there is a relationship between intake type (`intype`) and animal type (`animaltype`). It yields an X-squared value of 32,765, which measures the deviation between observed and expected frequencies under the null hypothesis. Since the p-value is very small, we reject the null hypothesis, concluding that there is an association between these variables. However, due to the warning that the chi-squared approximation might be incorrect, let's perform a simulated chi-squared test.
+
+### Simulated Chi-squared Test
+
+```{r}
+chisq.test(data$intype, data$animaltype, simulate.p.value = TRUE)
+
+```
+
+The simulated p-value (0.0004998) is much smaller than the standard significance threshold (0.05). This indicates a strong evidence that the two variables are correlated, suggesting that the intake type is related to the animal type.
+
+### Mesure of the association
+
+```{r}
+cramers_v <- assocstats(table(data$intype, data$animaltype))$cramer
+print(cramers_v)
+
+```
+
+The Cramér's V value of 0.393 indicates a moderate association between the variables "intake type" and "animal type." This suggests that the type of intake is somewhat related to the type of animal, but the relationship is not strong enough to be considered a high or very strong association.
+
+## Association Between Animal Type and Outcome Type
+
+### Standard Chi-squared Test
+
+```{r}
+chisq.test(data$animaltype, data$outtype)
+
+```
+
+The Pearson's Chi-squared test reveals enough evidence to conclude that there is a relationship between animal type (`animaltype`) and outcome type (`outtype`). It yields an X-squared value of 21,889, which measures the deviation between observed and expected frequencies under the null hypothesis. Since the p-value is very small, we reject the null hypothesis, concluding that there is an association between these variables. However, due to the warning that the chi-squared approximation might be incorrect, let's perform a simulated chi-squared test.
+
+### Simulated Chi-squared Test
+
+```{r}
+chisq.test(data$animaltype, data$outtype, simulate.p.value = TRUE)
+
+```
+
+The simulated p-value (0.0004998) is much smaller than the standard significance threshold (0.05). This indicates a strong evidence that the two variables are correlated, suggesting that the outcome type is influenced by the animal type.
+
+### Mesure of the association
+
+```{r}
+cramers_v <- assocstats(table(data$animaltype, data$outtype))$cramer
+print(cramers_v)
+
+```
+
+Again, The Cramér's V value of 0.32 indicates a moderate association between the variables "animal type" and "outcome type." This suggests that the type of animal is somewhat related to its outcome, but the relationship is not strong enough to be considered a high or very strong association.
+
+# Conclusion
+
+In conclusion, this project analyzes data from the Montgomery County Office of Animal Services (OAS), revealing key trends and patterns in animal intake and outcomes that offer valuable insights for shelter management. Notable findings include seasonal peaks in intake during the summer, with cats having the highest adoption rates, and livestock staying longer in shelters. Animals with intake types like euthanasia requests or veterinary care tend to spend less time in the shelter, while adopted animals generally stay longer. The COVID-19 lockdowns also had a significant impact, highlighting the importance of adaptability in shelter operations. The R-based analysis, supported by an interactive Tableau dashboard, provides decision-makers with accessible and actionable insights. These findings can inform resource allocation, targeted campaigns during critical periods, and policy adjustments. Though the linear model explains only 11.9% of the variance in shelter time, the findings highlight areas where OAS can optimize shelter management and enhance adoption outcomes.
